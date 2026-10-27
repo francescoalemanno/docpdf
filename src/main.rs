@@ -90,17 +90,18 @@ fn run_auto(args: Vec<String>) -> Result<()> {
     if verbose {
         for it in groups.iter().flatten() {
             eprintln!(
-                "{}: {:?}, rotazione {}°, lato {}, sicurezza {:.2}",
+                "{}: {:?}, rotazione {}°, lato {}, tipo {:?}, sicurezza {:.2}",
                 it.path.display(),
                 it.fmt,
                 it.rotation,
                 it.side,
+                it.kind,
                 it.confidence
             );
         }
         eprintln!("elaborazione: {:.2?}", t0.elapsed());
     }
-    let mut items = layout::order_groups(groups, |it| it.side);
+    let mut items = layout::order_groups(groups, |it| (it.side, it.kind));
     let out = out.unwrap_or_else(|| {
         let d = photo_dir(&paths[0]);
         d.join(format!("{}.pdf", default_name(&d)))

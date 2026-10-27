@@ -1,5 +1,7 @@
 //! Impaginazione dei documenti su un foglio A4.
 
+use crate::orient::Kind;
+
 pub const A4_W: f32 = 210.0;
 pub const A4_H: f32 = 297.0;
 const MARGIN: f32 = 12.0;
@@ -8,20 +10,41 @@ const GAP: f32 = 8.0;
 /// Mette in fila i documenti trovati in più foto.
 /// Caso tipico: foto dei fronti + foto dei retri con lo stesso numero di documenti
 /// -> fronte e retro di ciascun documento uno accanto all'altro.
-/// `side` dice se un documento è il fronte (-1) o il retro (+1).
-pub fn order_groups<T>(groups: Vec<Vec<T>>, side: impl Fn(&T) -> i8) -> Vec<T> {
+/// `doc` dice se un documento è il fronte (-1) o il retro (+1) e di che tipo è: i documenti dello
+/// stesso tipo vanno insieme anche se nelle due foto sono in ordine diverso, gli altri si
+/// abbinano nell'ordine in cui compaiono.
+pub fn order_groups<T>(groups: Vec<Vec<T>>, doc: impl Fn(&T) -> (i8, Option<Kind>)) -> Vec<T> {
     let groups: Vec<Vec<T>> = groups.into_iter().filter(|g| !g.is_empty()).collect();
-    if groups.len() == 2 && groups[0].len() == groups[1].len() {
-        // coppie fronte/retro, il fronte per primo
-        let mut it = groups.into_iter();
-        let (a, b) = (it.next().unwrap(), it.next().unwrap());
-        return a
-            .into_iter()
-            .zip(b)
-            .flat_map(|(x, y)| if side(&y) < side(&x) { [y, x] } else { [x, y] })
-            .collect();
+    if groups.len() != 2 || groups[0].len() != groups[1].len() {
+        return groups.into_iter().flatten().collect();
     }
-    groups.into_iter().flatten().collect()
+    let mut it = groups.into_iter();
+    let (a, b) = (it.next().unwrap(), it.next().unwrap());
+    let n = a.len();
+    // per ogni documento della prima foto, l'indice del suo compagno nella seconda
+    let mut mate: Vec<Option<usize>> = vec![None; n];
+    let mut taken = vec![false; n];
+    for (i, x) in a.iter().enumerate() {
+        if let (_, Some(k)) = doc(x) {
+            mate[i] = (0..n).find(|&j| !taken[j] && doc(&b[j]).1 == Some(k));
+            if let Some(j) = mate[i] {
+                taken[j] = true;
+            }
+        }
+    }
+    let mut rest = (0..n).filter(|&j| !taken[j]);
+    for m in mate.iter_mut().filter(|m| m.is_none()) {
+        *m = rest.next();
+    }
+    let mut b: Vec<Option<T>> = b.into_iter().map(Some).collect();
+    a.into_iter()
+        .zip(mate)
+        .flat_map(|(x, j)| {
+            let y = b[j.unwrap()].take().unwrap();
+            // il fronte per primo
+            if doc(&y).0 < doc(&x).0 { [y, x] } else { [x, y] }
+        })
+        .collect()
 }
 
 /// Riga di documenti: (indice, larghezza, altezza) in mm.

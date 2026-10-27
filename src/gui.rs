@@ -246,7 +246,7 @@ impl App {
                         let groups = b.groups.into_iter().map(Option::unwrap_or_default).collect();
                         let first_new = self.docs.len();
                         self.docs.extend(
-                            order_groups(groups, |(it, _): &(Item, RgbImage)| it.side)
+                            order_groups(groups, |(it, _): &(Item, RgbImage)| (it.side, it.kind))
                                 .into_iter()
                                 .map(|(it, pv)| Doc::new(it, pv)),
                         );

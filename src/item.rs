@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use crate::detect::detect_documents;
 use crate::geom::{Quad, order_corners, quad_sides};
 use crate::imgops::{self, Fmt, guess_format};
-use crate::orient::{OCR_SIZE, auto_rotation, guess_side};
+use crate::orient::{Kind, OCR_SIZE, auto_rotation, guess_doc};
 
 #[derive(Clone)]
 pub struct Item {
@@ -24,6 +24,8 @@ pub struct Item {
     pub confidence: f32,
     /// -1 = fronte, +1 = retro, 0 = non si sa.
     pub side: i8,
+    /// Tipo di documento, se riconosciuto dalle scritte.
+    pub kind: Option<Kind>,
     /// Documento raddrizzato e pulito a piena risoluzione, prima della rotazione.
     cache: Option<(CacheKey, Arc<RgbImage>)>,
 }
@@ -50,6 +52,7 @@ impl Item {
                     enhance: true,
                     confidence,
                     side: 0,
+                    kind: None,
                     cache: None,
                 };
                 it.auto_orient();
@@ -62,7 +65,7 @@ impl Item {
         let flat = imgops::warp_small(&self.original, &self.quad, self.fmt, OCR_SIZE);
         let (rotation, text) = auto_rotation(&flat, self.fmt.landscape());
         self.rotation = rotation;
-        self.side = guess_side(&text);
+        (self.side, self.kind) = guess_doc(&text);
     }
 
     pub fn is_landscape_crop(&self) -> bool {

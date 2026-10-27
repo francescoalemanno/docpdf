@@ -185,21 +185,31 @@ pub fn auto_rotation(img: &RgbImage, landscape: Option<bool>) -> (u32, String) {
     }
 }
 
-const BACK_HINTS: &[&str] = &[
-    "<<",
-    "TESSERA EUROPEA",
-    "EUROPEAN HEALTH",
-    "ESTREMI ATTO",
-    "COGNOME E NOME DEL",
-    "INDIRIZZO DI RESIDENZA",
-];
-const FRONT_HINTS: &[&str] = &[
-    "REPUBBLICA ITALIANA",
-    "CARTA DI IDENTIT",
-    "IDENTITY CARD",
-    "TESSERA SANITARIA",
-    "PATENTE DI GUIDA",
-    "COGNOME / SURNAME",
+/// Tipo di documento riconosciuto dalle scritte: serve ad abbinare fronte e retro giusti.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    IdCard,
+    HealthCard,
+    DrivingLicense,
+}
+
+const FRONT: i8 = -1;
+const BACK: i8 = 1;
+
+/// Scritte tipiche: (testo, documento se è specifica di uno solo, lato).
+const HINTS: &[(&str, Option<Kind>, i8)] = &[
+    ("REPUBBLICA ITALIANA", None, FRONT),
+    ("CARTA DI IDENTIT", Some(Kind::IdCard), FRONT),
+    ("IDENTITY CARD", Some(Kind::IdCard), FRONT),
+    ("COGNOME / SURNAME", Some(Kind::IdCard), FRONT),
+    ("<<", Some(Kind::IdCard), BACK),
+    ("ESTREMI ATTO", Some(Kind::IdCard), BACK),
+    ("COGNOME E NOME DEL", Some(Kind::IdCard), BACK),
+    ("INDIRIZZO DI RESIDENZA", Some(Kind::IdCard), BACK),
+    ("TESSERA SANITARIA", Some(Kind::HealthCard), FRONT),
+    ("TESSERA EUROPEA", Some(Kind::HealthCard), BACK),
+    ("EUROPEAN HEALTH", Some(Kind::HealthCard), BACK),
+    ("PATENTE DI GUIDA", Some(Kind::DrivingLicense), FRONT),
 ];
 
 const HINT_CHARS: usize = 12;
@@ -228,21 +238,35 @@ fn fuzzy_contains(text: &[char], pat: &[char], max_err: usize) -> bool {
     false
 }
 
-/// -1 = fronte, +1 = retro, 0 = non si sa.
-pub fn guess_side(text: &str) -> i8 {
+/// Lato (-1 = fronte, +1 = retro, 0 = non si sa) e tipo di documento, dalle scritte lette.
+pub fn guess_doc(text: &str) -> (i8, Option<Kind>) {
     let t = normalize(text);
-    let count = |hints: &[&str]| {
-        hints
-            .iter()
-            .filter(|h| {
-                let mut p = normalize(h);
-                p.truncate(HINT_CHARS);
-                fuzzy_contains(&t, &p, p.len() / 6)
-            })
-            .count()
+    let found: Vec<_> = HINTS
+        .iter()
+        .filter(|(h, ..)| {
+            let mut p = normalize(h);
+            p.truncate(HINT_CHARS);
+            fuzzy_contains(&t, &p, p.len() / 6)
+        })
+        .collect();
+    let votes = |side: i8| found.iter().filter(|h| h.2 == side).count();
+    let (front, back) = (votes(FRONT), votes(BACK));
+    let side = (back > front) as i8 - (front > back) as i8;
+    // il tipo con più scritte trovate; in caso di parità non si sa
+    let mut kinds: Vec<(usize, Kind)> = Vec::new();
+    for k in found.iter().filter_map(|h| h.1) {
+        match kinds.iter_mut().find(|c| c.1 == k) {
+            Some(c) => c.0 += 1,
+            None => kinds.push((1, k)),
+        }
+    }
+    kinds.sort_by_key(|c| std::cmp::Reverse(c.0));
+    let kind = match kinds[..] {
+        [(n, k), (m, _), ..] if n > m => Some(k),
+        [(_, k)] => Some(k),
+        _ => None,
     };
-    let (back, front) = (count(BACK_HINTS), count(FRONT_HINTS));
-    (back > front) as i8 - (front > back) as i8
+    (side, kind)
 }
 
 #[cfg(test)]
@@ -250,10 +274,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn side_hints_tolerate_ocr_errors() {
-        assert_eq!(guess_side("TESSERA FUROPEA DI ASSICURAZIONE MALATTIA"), 1);
-        assert_eq!(guess_side("REPUBBLICA ITALANA\nCARTA DIIDENTITA /IDENTITY CARD"), -1);
-        assert_eq!(guess_side("C<ITACA38543NU2<<<<<<<<"), 1);
-        assert_eq!(guess_side("12/08/2028 LIDIA"), 0);
+    fn hints_tolerate_ocr_errors() {
+        use Kind::*;
+        assert_eq!(guess_doc("TESSERA FUROPEA DI ASSICURAZIONE MALATTIA"), (1, Some(HealthCard)));
+        assert_eq!(guess_doc("REPUBBLICA ITALANA\nCARTA DIIDENTITA /IDENTITY CARD"), (-1, Some(IdCard)));
+        assert_eq!(guess_doc("REPUBBLICA ITALIANA\nTESSERA SANITARIA"), (-1, Some(HealthCard)));
+        assert_eq!(guess_doc("C<ITACA38543NU2<<<<<<<<"), (1, Some(IdCard)));
+        assert_eq!(guess_doc("12/08/2028 LIDIA"), (0, None));
     }
 }

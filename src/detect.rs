@@ -132,9 +132,12 @@ impl GradMap {
             / N as f32
     }
 
-    /// Media del gradiente lungo il perimetro.
+    /// Nettezza del bordo lungo il perimetro: media dei lati, con il lato più debole che conta
+    /// quanto la media (un lato che taglia il documento invece di seguirne il bordo è debole).
     fn edge_strength(&self, q: &Quad) -> f32 {
-        (0..4).map(|i| self.side_strength(q[i], q[(i + 1) % 4])).sum::<f32>() / 4.0
+        let sides = (0..4).map(|i| self.side_strength(q[i], q[(i + 1) % 4]));
+        let (sum, min) = sides.fold((0.0f32, f32::MAX), |(s, m), v| (s + v, m.min(v)));
+        (sum / 4.0 + min) / 2.0
     }
 
     /// Sposta ogni lato (i due estremi lungo la normale, indipendentemente) sul bordo più netto
@@ -164,6 +167,17 @@ impl GradMap {
                     let s = score(da, db);
                     if s > best.0 {
                         best = (s, da, db);
+                    }
+                }
+            }
+            // fra i bordi netti quasi quanto il migliore vince il più esterno: dentro il documento
+            // ci sono scritte e righe a contrasto più alto del bordo, fuori di solito no
+            let strong = 0.7 * best.0;
+            for i in -k..=k {
+                for j in -k..=k {
+                    let (da, db) = (i as f32 * step, j as f32 * step);
+                    if da + db > best.1 + best.2 && score(da, db) >= strong {
+                        best = (score(da, db), da, db);
                     }
                 }
             }
@@ -228,40 +242,91 @@ fn approximate_closed(poly: &[Point<i32>], eps: f64) -> Vec<Point<i32>> {
     out
 }
 
-/// Quadrilateri candidati (con il "riempimento") dalle regioni chiuse di una maschera.
+/// Frazione del perimetro del quadrilatero su cui la maschera è accesa (entro 2 pixel).
+fn outline_coverage(mask: &GrayImage, q: &Quad) -> f32 {
+    const N: usize = 25;
+    let (w, h) = (mask.width() as i32, mask.height() as i32);
+    let on = |p: Pt| {
+        (-2..=2).any(|dy| {
+            (-2..=2).any(|dx| {
+                let (x, y) = (p[0].round() as i32 + dx, p[1].round() as i32 + dy);
+                x >= 0 && y >= 0 && x < w && y < h && mask.get_pixel(x as u32, y as u32).0[0] > 0
+            })
+        })
+    };
+    let hits: usize = (0..4)
+        .map(|i| {
+            let (a, b) = (q[i], q[(i + 1) % 4]);
+            (0..N)
+                .filter(|&k| {
+                    let t = (k as f32 + 0.5) / N as f32;
+                    on([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
+                })
+                .count()
+        })
+        .sum();
+    hits as f32 / (4 * N) as f32
+}
+
+/// Quadrilatero formato dai quattro lati più lunghi di un poligono, prolungati: toglie gli
+/// spigoli tagliati di sbieco.
+fn longest_sides_quad(poly: &[Pt]) -> Option<Quad> {
+    let n = poly.len();
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&a, &b| dist(poly[b], poly[(b + 1) % n]).total_cmp(&dist(poly[a], poly[(a + 1) % n])));
+    idx.truncate(4);
+    idx.sort_unstable();
+    let side = |k: usize| (poly[idx[k]], poly[(idx[k] + 1) % n]);
+    let mut q = [[0.0; 2]; 4];
+    for (k, corner) in q.iter_mut().enumerate() {
+        *corner = intersect_segments_lines(side((k + 3) % 4), side(k))?;
+    }
+    is_convex(&q).then_some(q)
+}
+
+type Contour = (f32, f32, Vec<Pt>, Vec<Point<i32>>);
+
+/// Quadrilateri candidati (con il "riempimento") dalle regioni di una maschera. Il riempimento
+/// è la parte del quadrilatero occupata dalla regione, oppure, per i contorni aperti (un bordo
+/// con un buco, che non racchiude nulla), la parte del perimetro coperta dal contorno.
 fn contour_candidates(mask: &GrayImage, min_area: f32) -> Vec<(Quad, f32)> {
-    let mut cnts: Vec<(f32, Vec<Pt>)> = find_contours::<i32>(mask)
+    // (area dell'inviluppo, area racchiusa, contorno, inviluppo)
+    let mut cnts: Vec<Contour> = find_contours::<i32>(mask)
         .into_iter()
         .filter(|c| c.points.len() >= 4)
-        .map(|c| {
+        .filter_map(|c| {
             let pts: Vec<Pt> = c.points.iter().map(|p| [p.x as f32, p.y as f32]).collect();
-            (polygon_area(&pts), pts)
+            let hull = convex_hull(c.points);
+            let hull_pts: Vec<Pt> = hull.iter().map(|p| [p.x as f32, p.y as f32]).collect();
+            let hull_area = polygon_area(&hull_pts);
+            (hull.len() >= 3 && hull_area >= min_area).then(|| (hull_area, polygon_area(&pts), pts, hull))
         })
-        .filter(|(a, _)| *a >= min_area)
         .collect();
     cnts.sort_by(|a, b| b.0.total_cmp(&a.0));
     cnts.truncate(8);
     let mut out = Vec::new();
-    for (area, pts) in cnts {
-        let ipts: Vec<Point<i32>> = pts.iter().map(|p| Point::new(p[0] as i32, p[1] as i32)).collect();
-        let hull = convex_hull(ipts);
-        if hull.len() < 3 {
-            continue;
-        }
+    for (_, area, pts, hull) in cnts {
         let peri = arc_length(&hull, true);
-        let mut quad = None;
+        let (mut quad, mut cut) = (None, None);
         for eps in [0.02, 0.03, 0.04, 0.06] {
-            let ap = approximate_closed(&hull, eps * peri);
+            let ap: Vec<Pt> = approximate_closed(&hull, eps * peri).iter().map(|p| [p.x as f32, p.y as f32]).collect();
             if ap.len() == 4 {
-                quad = Some([0, 1, 2, 3].map(|i| [ap[i].x as f32, ap[i].y as f32]));
+                quad = Some([ap[0], ap[1], ap[2], ap[3]]);
                 break;
+            }
+            if cut.is_none() && (5..=6).contains(&ap.len()) {
+                cut = longest_sides_quad(&ap);
             }
         }
         let quad = quad.unwrap_or_else(|| min_area_rect(&hull).map(|p| [p.x as f32, p.y as f32]));
-        let quad = refine_quad_with_lines(&pts, &order_corners(&quad));
-        let qa = polygon_area(&quad);
-        let fill = if qa > 0.0 { area / qa } else { 0.0 };
-        out.push((quad, fill));
+        let refined = refine_quad_with_lines(&pts, &order_corners(&quad));
+        // con uno spigolo smussato (bordo interrotto proprio lì) si prova anche la versione
+        // con i quattro lati più lunghi prolungati
+        for q in std::iter::once(refined).chain(cut.map(|q| order_corners(&q))) {
+            let qa = polygon_area(&q);
+            let fill = if qa > 0.0 { (area / qa).min(1.0) } else { 0.0 };
+            out.push((q, fill.max(outline_coverage(mask, &q))));
+        }
     }
     out
 }
@@ -301,7 +366,7 @@ fn scored_candidates(cands: &[(Quad, f32)], g: &GradMap) -> Vec<(f32, Quad)> {
             let edge = g.edge_strength(&q).min(1.0);
             let fmt_bonus = [CARD_RATIO, 297.0 / 210.0, 125.0 / 88.0]
                 .iter()
-                .map(|r| (-((ratio - r) / 0.06).powi(2)).exp())
+                .map(|r| (-((ratio - r) / 0.1).powi(2)).exp())
                 .fold(0.0f32, f32::max);
             // non a ridosso del bordo foto (tipico dei falsi positivi che inquadrano tutto)
             let margin = q
@@ -355,7 +420,7 @@ fn pick_documents(scored: &[(f32, Quad)]) -> Vec<(f32, Quad)> {
     let Some(&(best, _)) = scored.first() else { return vec![] };
     let mut chosen: Vec<(f32, Quad)> = Vec::new();
     for &(score, q) in scored {
-        if score < (0.72 * best).max(0.42) {
+        if score < (0.6 * best).max(0.42) {
             break;
         }
         if chosen.iter().any(|(_, c)| overlap(&q, c) > 0.15) {

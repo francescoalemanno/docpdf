@@ -23,6 +23,10 @@ const USAGE: &str = "\
 Uso:
   docpdf [foto o cartelle…]                         apre la finestra
   docpdf --auto [foto o cartelle…] [-o uscita.pdf]  senza finestra (-v: dettagli)
+
+DocPDF è sotto licenza MIT. Include i modelli OCR di Ocrs (Robert Knight),
+licenza CC BY-SA 4.0, senza modifiche: https://huggingface.co/robertknight/ocrs
+https://creativecommons.org/licenses/by-sa/4.0/
 ";
 
 pub fn is_image(p: &Path) -> bool {

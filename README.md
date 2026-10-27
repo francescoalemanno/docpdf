@@ -42,7 +42,7 @@ cd ~/docpdf
 ./install.sh
 ```
 
-L'installer scarica i modelli dell'OCR (circa 12 MB, una volta sola), compila il programma (serve Rust: su Arch `sudo pacman -S rust`) e installa:
+L'installer compila il programma (serve Rust: su Arch `sudo pacman -S rust`) e installa:
 
 - l'eseguibile `~/.local/bin/docpdf`
 - l'azione di Nemo `~/.local/share/nemo/actions/docpdf.nemo_action`
@@ -81,7 +81,11 @@ Scritto in Rust; librerie principali: [egui/eframe](https://github.com/emilk/egu
 - `src/layout.rs` — abbinamento fronte/retro e impaginazione sull'A4
 - `src/pdf.rs` — scrittura del PDF (immagini JPEG a 300 dpi)
 - `src/gui.rs` — la finestra
-- `models/download.sh` — scarica i modelli dell'OCR ([ocrs-models](https://github.com/robertknight/ocrs-models)), che vengono inclusi nell'eseguibile al momento della compilazione. Non stanno nel repository: valgono le condizioni del progetto d'origine (addestrati anche su HierText, CC BY-SA 4.0)
+- `models/` — i modelli dell'OCR di [Ocrs](https://github.com/robertknight/ocrs) (Robert Knight), inclusi nell'eseguibile al momento della compilazione
+
+## Licenza
+
+Il codice di DocPDF è sotto licenza MIT (`LICENSE`). I modelli dell'OCR in `models/` sono di Robert Knight e sono distribuiti con licenza [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), senza modifiche: origine e testo della licenza in [`models/README.md`](models/README.md) e [`models/LICENSE`](models/LICENSE). Anche l'eseguibile compilato li contiene, quindi se lo distribuisci includi queste informazioni.
 
 ## Privacy
 

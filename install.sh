@@ -25,7 +25,6 @@ command -v cargo >/dev/null || {
     echo "Serve Rust per compilare (su Arch: sudo pacman -S rust, altrimenti https://rustup.rs)." >&2
     exit 1
 }
-"$ROOT/models/download.sh"
 echo "Compilazione (la prima volta ci vuole qualche minuto)…"
 cargo build --release --locked --manifest-path "$ROOT/Cargo.toml"
 

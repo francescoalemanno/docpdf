@@ -1,5 +1,4 @@
 /target/
-/models/*.onnx
 
 # Mai nel repository: foto e PDF di documenti reali
 *.jpg

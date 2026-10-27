@@ -6,7 +6,7 @@ APP_DATA="$DATA_HOME/docpdf"
 VENV="$APP_DATA/venv"
 BIN_LINK="$HOME/.local/bin/docpdf"
 ACTION_DEST="$DATA_HOME/nemo/actions"
-# L'azione usa Exec=<docpdf-bin/docpdf>: Nemo cerca l'eseguibile relativo
+# L'azione usa Exec=<docpdf-bin/docpdf %F>: Nemo cerca l'eseguibile relativo
 # alla cartella delle azioni, quindi lì serve un collegamento a bin/.
 HELPER_LINK="$ACTION_DEST/docpdf-bin"
 ACTION_LINK="$ACTION_DEST/docpdf.nemo_action"

@@ -44,7 +44,7 @@ cd ~/docpdf
 L'installer crea un ambiente Python dedicato in `~/.local/share/docpdf/venv` (usa i pacchetti di sistema già presenti, come PyQt6, e scarica solo quelli mancanti: OpenCV, numpy…), poi collega:
 
 - `~/.local/bin/docpdf` → `bin/docpdf`
-- l'azione di Nemo in `~/.local/share/nemo/actions` (con il collegamento `docpdf-bin` → `bin/`, perché l'azione usa `Exec=<docpdf-bin/docpdf>`)
+- l'azione di Nemo in `~/.local/share/nemo/actions` (con il collegamento `docpdf-bin` → `bin/`, perché l'azione usa `Exec=<docpdf-bin/docpdf %F>`)
 - la voce **DocPDF** nel menu delle applicazioni
 
 La cartella clonata va lasciata al suo posto, perché i collegamenti puntano ai suoi file. Se l'azione non compare subito, riavvia Nemo con `nemo -q`.

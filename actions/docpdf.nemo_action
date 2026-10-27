@@ -1,7 +1,0 @@
-[Nemo Action]
-Name=Unisci documenti in un PDF
-Comment=Raddrizza e ritaglia le foto dei documenti e le mette in un'unica pagina PDF
-Exec=<docpdf-bin/docpdf %F>
-Icon-Name=x-office-document
-Selection=notnone
-Extensions=jpg;jpeg;png;webp;heic;heif;tif;tiff;bmp;dir;

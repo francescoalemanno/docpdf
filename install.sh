@@ -1,80 +1,68 @@
 #!/usr/bin/env bash
+# Compila DocPDF e lo installa per l'utente corrente.
 set -euo pipefail
 ROOT=$(dirname -- "$(readlink -f -- "$0")")
 DATA_HOME=${XDG_DATA_HOME:-"$HOME/.local/share"}
-APP_DATA="$DATA_HOME/docpdf"
-VENV="$APP_DATA/venv"
-BIN_LINK="$HOME/.local/bin/docpdf"
-ACTION_DEST="$DATA_HOME/nemo/actions"
-# L'azione usa Exec=<docpdf-bin/docpdf %F>: Nemo cerca l'eseguibile relativo
-# alla cartella delle azioni, quindi lì serve un collegamento a bin/.
-HELPER_LINK="$ACTION_DEST/docpdf-bin"
-ACTION_LINK="$ACTION_DEST/docpdf.nemo_action"
+BIN="$HOME/.local/bin/docpdf"
+ACTIONS="$DATA_HOME/nemo/actions"
+ACTION="$ACTIONS/docpdf.nemo_action"
 DESKTOP="$DATA_HOME/applications/docpdf.desktop"
 
-# Vero se $1 è un link simbolico che punta dentro questa cartella.
-points_into_root() {
-    local link
-    [[ -L $1 ]] && link=$(readlink -- "$1") && [[ $link == "$ROOT/"* ]]
+# Vero se $1 è stato creato da DocPDF (questa versione o quella in Python).
+ours() {
+    [[ -L $1 ]] && [[ $(readlink -- "$1") == *docpdf* ]] && return 0
+    [[ -f $1 ]] && grep -aq 'DocPDF\|docpdf' -- "$1"
 }
 
-# Vero se $1 è un file creato da una versione di DocPDF installata a mano.
-legacy_docpdf_file() {
-    [[ -f $1 && ! -L $1 ]] && grep -q 'docpdf' -- "$1"
-}
-
-check_target() {
-    if [[ -e $1 || -L $1 ]] && ! points_into_root "$1" && ! legacy_docpdf_file "$1"; then
-        printf 'Installazione interrotta: esiste già un elemento non gestito da questo installer:\n  %s\n' "$1" >&2
+for target in "$BIN" "$ACTION" "$DESKTOP"; do
+    if [[ -e $target || -L $target ]] && ! ours "$target"; then
+        printf 'Installazione interrotta: esiste già un elemento non creato da DocPDF:\n  %s\n' "$target" >&2
         exit 1
     fi
-}
-
-command -v python3 >/dev/null || { echo "Serve python3." >&2; exit 1; }
-python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' \
-    || { echo "Serve Python 3.10 o più recente." >&2; exit 1; }
-for target in "$BIN_LINK" "$HELPER_LINK" "$ACTION_LINK"; do
-    check_target "$target"
 done
 
-# Ambiente Python dedicato. Usa i pacchetti di sistema già presenti
-# (per esempio PyQt6) e installa solo quelli mancanti.
-if [[ ! -x $VENV/bin/python ]]; then
-    echo "Creazione dell'ambiente Python in $VENV…"
-    python3 -m venv --system-site-packages "$VENV"
+command -v cargo >/dev/null || {
+    echo "Serve Rust per compilare (su Arch: sudo pacman -S rust, altrimenti https://rustup.rs)." >&2
+    exit 1
+}
+"$ROOT/models/download.sh"
+echo "Compilazione (la prima volta ci vuole qualche minuto)…"
+cargo build --release --locked --manifest-path "$ROOT/Cargo.toml"
+
+# Residui della versione in Python: ambiente virtuale e collegamenti
+[[ -L $ACTIONS/docpdf-bin ]] && rm -- "$ACTIONS/docpdf-bin"
+# (nella stessa cartella la finestra salva le sue impostazioni: si toglie solo venv)
+if [[ -d $DATA_HOME/docpdf/venv ]]; then
+    rm -rf -- "$DATA_HOME/docpdf/venv"
+    echo "Rimosso il vecchio ambiente Python in $DATA_HOME/docpdf/venv"
 fi
-echo "Installazione delle dipendenze Python…"
-"$VENV/bin/python" -m pip install --quiet --disable-pip-version-check -r "$ROOT/requirements.txt"
 
-# File della vecchia installazione manuale, ora sostituiti da questa cartella
-rm -f -- "$APP_DATA/core.py" "$APP_DATA/gui.py"
-rm -rf -- "$APP_DATA/__pycache__"
+rm -f -- "$BIN" "$ACTION"
+install -Dm755 -- "$ROOT/target/release/docpdf" "$BIN"
+mkdir -p -- "$ACTIONS" "$(dirname -- "$DESKTOP")"
 
-chmod +x -- "$ROOT/bin/docpdf"
-mkdir -p -- "$(dirname -- "$BIN_LINK")" "$ACTION_DEST" "$(dirname -- "$DESKTOP")"
-rm -f -- "$BIN_LINK" "$ACTION_LINK"
-ln -sfn -- "$ROOT/bin/docpdf" "$BIN_LINK"
-ln -sfn -- "$ROOT/bin" "$HELPER_LINK"
-ln -sfn -- "$ROOT/actions/docpdf.nemo_action" "$ACTION_LINK"
+cat > "$ACTION" <<ACTION
+[Nemo Action]
+Name=Unisci documenti in un PDF
+Comment=Raddrizza e ritaglia le foto dei documenti e le mette in un'unica pagina PDF (DocPDF)
+Exec=$BIN %F
+Icon-Name=x-office-document
+Selection=notnone
+Extensions=jpg;jpeg;png;webp;heic;heif;tif;tiff;bmp;dir;
+ACTION
 
 cat > "$DESKTOP" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=DocPDF
 Comment=Foto di documenti in un'unica pagina PDF
-Exec=$ROOT/bin/docpdf %F
+Exec=$BIN %F
 Icon=x-office-document
 Terminal=false
 Categories=Office;Graphics;
 MimeType=image/jpeg;image/png;image/webp;image/heic;image/tiff;
+StartupWMClass=docpdf
 DESKTOP
 
-if ! command -v tesseract >/dev/null; then
-    echo "Attenzione: tesseract non è installato. Senza OCR i documenti non vengono girati" \
-         "nel verso giusto automaticamente (su Arch: sudo pacman -S tesseract tesseract-data-ita)." >&2
-elif ! tesseract --list-langs 2>/dev/null | grep -qx 'ita'; then
-    echo "Consiglio: installa la lingua italiana di tesseract (su Arch: sudo pacman -S tesseract-data-ita)." >&2
-fi
-
-echo "DocPDF installato. Avvialo con 'docpdf' oppure dal menu di Nemo (clic destro sulle foto)."
+echo "DocPDF installato in $BIN. Avvialo con 'docpdf' oppure dal menu di Nemo (clic destro sulle foto)."
 echo "Se l'azione non compare in Nemo, riavvialo con: nemo -q"

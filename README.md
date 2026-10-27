@@ -3,7 +3,7 @@
 Trasforma le foto dei documenti (carta d'identità, tessera sanitaria, patente, fogli) in **un'unica pagina PDF A4**: ogni documento viene trovato nella foto, ritagliato dallo sfondo, raddrizzato e girato nel verso giusto.
 
 - **Rilevamento automatico** del documento, anche fotografato storto o in prospettiva; se nella stessa foto ci sono più documenti (per esempio tessera sanitaria e carta d'identità), vengono separati.
-- **Orientamento automatico** con l'OCR (Tesseract): i documenti capovolti o girati di 90° vengono rimessi dritti.
+- **Orientamento automatico** con l'OCR integrato: i documenti capovolti o girati di 90° vengono rimessi dritti; le foto senza testo restano come sono.
 - **Fronte e retro affiancati**: con due foto che contengono lo stesso numero di documenti (una dei fronti, una dei retri), ogni fronte viene messo accanto al suo retro; il fronte va per primo (lo riconosce dal testo: «Repubblica Italiana», «Carta di identità»… contro la zona `<<<<` o «Tessera europea di assicurazione malattia» del retro).
 - **Proporzioni esatte**: le tessere (formato ID-1, 85,6 × 54 mm) escono con le proporzioni reali e gli angoli arrotondati puliti; si può scegliere anche passaporto, A4, A5 o formato libero.
 - **Pulizia dell'immagine** (facoltativa per ogni documento): bilanciamento del bianco, contrasto e nitidezza.
@@ -15,11 +15,12 @@ In Nemo seleziona le foto (oppure la cartella che le contiene), clic destro → 
 
 | Comando | Tasto |
 |---|---|
-| Correggi il ritaglio (trascina i 4 angoli; rotella = zoom) | `E` o doppio clic sulla miniatura |
+| Correggi il ritaglio (trascina i 4 angoli; rotella = zoom; `Invio` = OK, `Esc` = annulla) | `E` o doppio clic sulla miniatura |
 | Ruota a destra / a sinistra | `R` / `Shift+R` |
 | Capovolgi | `F` |
 | Duplica (per ritagliare a mano un altro documento della stessa foto) | `D` |
 | Togli dalla pagina | `Canc` |
+| Documento precedente / successivo | frecce |
 | Aggiungi foto (oppure trascinale nella finestra) | `Ctrl+O` |
 | Salva il PDF | `Ctrl+S` |
 
@@ -30,7 +31,7 @@ Si può usare anche da terminale:
 ```bash
 docpdf foto1.jpg foto2.jpg            # apre la finestra
 docpdf cartella/                      # tutte le immagini della cartella
-docpdf --auto cartella/ -o uscita.pdf # senza finestra
+docpdf --auto cartella/ -o uscita.pdf # senza finestra (-v: formato, rotazione e fronte/retro trovati)
 ```
 
 ## Installazione
@@ -41,19 +42,15 @@ cd ~/docpdf
 ./install.sh
 ```
 
-L'installer crea un ambiente Python dedicato in `~/.local/share/docpdf/venv` (usa i pacchetti di sistema già presenti, come PyQt6, e scarica solo quelli mancanti: OpenCV, numpy…), poi collega:
+L'installer scarica i modelli dell'OCR (circa 12 MB, una volta sola), compila il programma (serve Rust: su Arch `sudo pacman -S rust`) e installa:
 
-- `~/.local/bin/docpdf` → `bin/docpdf`
-- l'azione di Nemo in `~/.local/share/nemo/actions` (con il collegamento `docpdf-bin` → `bin/`, perché l'azione usa `Exec=<docpdf-bin/docpdf %F>`)
+- l'eseguibile `~/.local/bin/docpdf`
+- l'azione di Nemo `~/.local/share/nemo/actions/docpdf.nemo_action`
 - la voce **DocPDF** nel menu delle applicazioni
 
-La cartella clonata va lasciata al suo posto, perché i collegamenti puntano ai suoi file. Se l'azione non compare subito, riavvia Nemo con `nemo -q`.
+Se trova la vecchia versione in Python, ne rimuove l'ambiente virtuale. Se l'azione non compare subito, riavvia Nemo con `nemo -q`.
 
-### Dipendenze di sistema
-
-- Python ≥ 3.10
-- `tesseract` con la lingua italiana, per l'orientamento automatico (su Arch: `sudo pacman -S tesseract tesseract-data-ita`; `tesseract-data-eng` è facoltativo)
-- `imagemagick` (facoltativo) per aprire foto HEIC
+Il risultato è **un unico file eseguibile** (circa 30 MB, con dentro i modelli dell'OCR): non servono Python, Tesseract né altre librerie oltre a quelle di base del sistema. Si può anche copiare `target/release/docpdf` su un altro PC Linux e usarlo così com'è. Unica dipendenza facoltativa: `imagemagick`, per aprire le foto HEIC.
 
 ## Aggiornamento
 
@@ -70,14 +67,21 @@ cd ~/docpdf
 ./uninstall.sh
 ```
 
-Rimuove i collegamenti, la voce di menu e l'ambiente Python in `~/.local/share/docpdf`; i file nella cartella clonata restano al loro posto.
+Rimuove l'eseguibile, l'azione di Nemo, la voce di menu e le impostazioni della finestra (`~/.local/share/docpdf`); i file nella cartella clonata restano al loro posto.
 
 ## Struttura
 
-- `docpdf/core.py` — rilevamento dei documenti (OpenCV), raddrizzamento, pulizia, orientamento con Tesseract, impaginazione e scrittura del PDF (ReportLab)
-- `docpdf/gui.py` — la finestra (PyQt6) e la modalità `--auto`
-- `bin/docpdf` — avvio con l'ambiente Python dell'installer
-- `actions/docpdf.nemo_action` — l'azione per Nemo
+Scritto in Rust; librerie principali: [egui/eframe](https://github.com/emilk/egui) per la finestra, [image](https://github.com/image-rs/image) e [imageproc](https://github.com/image-rs/imageproc) per le immagini, [ocrs](https://github.com/robertknight/ocrs) (con [rten](https://github.com/robertknight/rten)) per l'OCR, [pdf-writer](https://github.com/typst/pdf-writer) per il PDF.
+
+- `src/detect.rs` — rilevamento dei documenti: bordi (Canny) e soglie (Otsu) su luminosità e colore, contorni, quadrilateri; ogni lato viene poi agganciato al bordo vero più vicino e i candidati sono valutati per nettezza dei bordi, forma e formato
+- `src/geom.rs` — geometria dei quadrilateri
+- `src/imgops.rs` — caricamento (con orientamento EXIF), raddrizzamento prospettico, pulizia (bianco, livelli, CLAHE, nitidezza), angoli arrotondati
+- `src/orient.rs` — orientamento con l'OCR: legge l'inizio delle righe di testo più lunghe dritte e capovolte e sceglie il verso letto con più sicurezza; riconosce fronte e retro dalle scritte
+- `src/item.rs` — un documento trovato in una foto
+- `src/layout.rs` — abbinamento fronte/retro e impaginazione sull'A4
+- `src/pdf.rs` — scrittura del PDF (immagini JPEG a 300 dpi)
+- `src/gui.rs` — la finestra
+- `models/download.sh` — scarica i modelli dell'OCR ([ocrs-models](https://github.com/robertknight/ocrs-models)), che vengono inclusi nell'eseguibile al momento della compilazione. Non stanno nel repository: valgono le condizioni del progetto d'origine (addestrati anche su HierText, CC BY-SA 4.0)
 
 ## Privacy
 

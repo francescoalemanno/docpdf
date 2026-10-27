@@ -1,7 +1,5 @@
-__pycache__/
-*.pyc
-venv/
-.venv/
+/target/
+/models/*.onnx
 
 # Mai nel repository: foto e PDF di documenti reali
 *.jpg

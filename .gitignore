@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Mai nel repository: foto e PDF di documenti reali
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.heic
+*.heif
+*.tif
+*.tiff
+*.bmp
+*.pdf

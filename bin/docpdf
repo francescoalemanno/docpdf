@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Avvia DocPDF con l'ambiente Python creato da install.sh.
+ROOT=$(dirname -- "$(dirname -- "$(readlink -f -- "$0")")")
+DATA_HOME=${XDG_DATA_HOME:-"$HOME/.local/share"}
+PY="$DATA_HOME/docpdf/venv/bin/python"
+[[ -x $PY ]] || { printf 'DocPDF non è installato: esegui %s/install.sh\n' "$ROOT" >&2; exit 1; }
+PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" exec "$PY" -m docpdf "$@"

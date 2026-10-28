@@ -423,10 +423,8 @@ impl App {
 
     fn main_ui(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         let ctx = ui.ctx().clone();
-        let gray = self.settings.gray;
         for d in &mut self.docs {
             d.texture(&ctx, false);
-            d.texture(&ctx, gray);
         }
         egui::Panel::bottom("barra").show(ui, |ui| self.bottom_bar(ui, actions));
         egui::Panel::left("documenti").resizable(true).default_size(260.0).min_size(200.0).show(ui, |ui| {
@@ -590,9 +588,11 @@ impl App {
         let pos = layout(&sizes, SCALES[self.settings.scale].1);
         let rects: Vec<Rect> =
             pos.iter().map(|&(x, y, w, h)| Rect::from_min_size(page.min + vec2(x * s, y * s), vec2(w * s, h * s))).collect();
-        for (i, (doc, r)) in self.docs.iter().zip(&rects).enumerate() {
-            let tex = if self.settings.gray { &doc.gray_tex } else { &doc.tex };
-            p.image(tex.as_ref().unwrap().id(), *r, full_uv(), Color32::WHITE);
+        // la casella «Bianco e nero» può essere appena cambiata in questo frame
+        let ctx = ui.ctx().clone();
+        let gray = self.settings.gray;
+        for (i, (doc, r)) in self.docs.iter_mut().zip(&rects).enumerate() {
+            p.image(doc.texture(&ctx, gray).id(), *r, full_uv(), Color32::WHITE);
             if doc.item.confidence < UNCERTAIN {
                 p.rect_stroke(*r, 0.0, Stroke::new(2.0, ORANGE), StrokeKind::Outside);
             }
